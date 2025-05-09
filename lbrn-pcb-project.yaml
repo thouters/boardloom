@@ -1,0 +1,21 @@
+
+project:
+  input_files_prefix: "pir-24v-"
+  output_name: "out.lbrn2"
+board_settings:
+  board_width: 51
+  board_height: 71
+  workarea_x: 0
+  workarea_y: 0
+layers:
+  - identifier: "F_Cu"
+    image_settings:
+      mirror_y:  true
+      max_power: 33
+      speed_mm_sec: 5
+      dither_mode: "threshold"
+      line_interval_mm: 0.0847
+  - identifier: "F_Mask"
+    line_settings:
+      max_power: 20
+      speed_mm_sec: 5
