@@ -4,7 +4,8 @@ import io
 import os
 from PIL import Image
 import base64
-from typing import List, Tuple  
+from typing import List, Tuple
+import yaml
 
 origin_x = 0
 origin_y = 0
@@ -55,8 +56,24 @@ def format_vertlist(d):
             formatted.append(f"V{x} -{y}c0x1c1x1")
     return ''.join(formatted)
 
-def create_lbrn2(filenames, output_file):
+def create_lbrn2(config):
     """Create a LightBurn XML file with multiple layers from the given SVG files."""
+    input_files = []
+    input_files_prefix = config['project']['input_files_prefix']
+    output_file = config['project']['output_name']
+    layers = config.get('layers', [])
+    # Get the input files from the config
+    for layer in layers:
+        identifier = layer['identifier']
+        if "image_settings" in layer:
+            default_extension =".png"
+        elif "line_settings" in layer:
+            default_extension =".svg"
+        else:
+            raise ValueError(f"Layer {identifier} does not have a valid type.")
+        extension = layer.get('extension', default_extension)
+        input_files.append(f"{input_files_prefix}{identifier}{extension}")
+
     project = ET.Element('LightBurnProject', {
         'AppVersion': '1.7.06',
         'DeviceName': 'GRBL',
@@ -67,44 +84,57 @@ def create_lbrn2(filenames, output_file):
     })
 
     # Add CutSettings for each layer
-    for index, filename in enumerate(filenames):
-        if filename.endswith('.svg'):
+    for index, (layer,filename) in enumerate(zip(layers,input_files)):
+        if "line_settings" in layer:
             cut_setting = ET.SubElement(project, 'CutSetting', {'type': 'Cut'})
+            speed_mm_sec = layer['line_settings']['speed_mm_sec']
+            max_power = layer['line_settings']['max_power']
+            min_power = layer['line_settings'].get('min_power', int(max_power)-1)
             ET.SubElement(cut_setting, 'index', {'Value': str(index)})
             ET.SubElement(cut_setting, 'name', {'Value': os.path.basename(filename)})
-            ET.SubElement(cut_setting, 'maxPower', {'Value': '20'})
-            ET.SubElement(cut_setting, 'maxPower2', {'Value': '20'})
-            ET.SubElement(cut_setting, 'speed', {'Value': '100'})
-            ET.SubElement(cut_setting, 'priority', {'Value': '0'})
-        elif filename.endswith('.png'):
-            cut_setting_img = ET.SubElement(project, 'CutSetting_Img', {'type': 'Image'})
-            ET.SubElement(cut_setting_img, 'index', {'Value': str(index)})
-            ET.SubElement(cut_setting_img, 'name', {'Value': os.path.basename(filename)})
-            ET.SubElement(cut_setting_img, 'maxPower', {'Value': '33'})
-            ET.SubElement(cut_setting_img, 'maxPower2', {'Value': '20'})
-            # convert speed from mm/sec to mm/min:
-            speed_mm_sec = 5
+            ET.SubElement(cut_setting, 'maxPower', {'Value':str(max_power)})
+            ET.SubElement(cut_setting, 'maxPower2', {'Value': str(min_power)})
+            speed_mm_sec = speed_mm_sec
             speed = speed_mm_sec / 60
-            ET.SubElement(cut_setting_img, 'speed', {'Value': str(speed)})
-            ET.SubElement(cut_setting_img, 'bidir', {'Value': '0'})
-            line_interval_mm = "0.0847"
-            ET.SubElement(cut_setting_img, 'interval', {'Value': line_interval_mm})
-            ET.SubElement(cut_setting_img, 'priority', {'Value': '0'})
-            ET.SubElement(cut_setting_img, 'tabCount', {'Value': '1'})
-            ET.SubElement(cut_setting_img, 'tabCountMax', {'Value': '1'})
-            ET.SubElement(cut_setting_img, 'ditherMode', {'Value': 'threshold'})
-            ET.SubElement(cut_setting_img, 'dpi', {'Value': str(img_dpi)})
+            ET.SubElement(cut_setting, 'speed', {'Value': str(speed)})
+            ET.SubElement(cut_setting, 'priority', {'Value': '0'})
+        elif "image_settings" in layer:
+            speed_mm_sec = layer['image_settings']['speed_mm_sec']
+            line_interval_mm = layer['image_settings']['line_interval_mm']
+            cut_setting = ET.SubElement(project, 'CutSetting_Img', {'type': 'Image'})
+            max_power = layer['image_settings']['max_power']
+            min_power = layer['image_settings'].get('min_power', int(max_power)-1)
+            ET.SubElement(cut_setting, 'index', {'Value': str(index)})
+            ET.SubElement(cut_setting, 'name', {'Value': os.path.basename(filename)})
+            ET.SubElement(cut_setting, 'maxPower', {'Value':str(max_power)})
+            ET.SubElement(cut_setting, 'maxPower2', {'Value': str(min_power)})
+            # convert speed from mm/sec to mm/min:
+            speed_mm_sec = speed_mm_sec
+            speed = speed_mm_sec / 60
+            ET.SubElement(cut_setting, 'speed', {'Value': str(speed)})
+            ET.SubElement(cut_setting, 'bidir', {'Value': '0'})
+            ET.SubElement(cut_setting, 'interval', {'Value': str(line_interval_mm)})
+            ET.SubElement(cut_setting, 'priority', {'Value': '0'})
+            ET.SubElement(cut_setting, 'tabCount', {'Value': '1'})
+            ET.SubElement(cut_setting, 'tabCountMax', {'Value': '1'})
+            ET.SubElement(cut_setting, 'ditherMode', {'Value': 'threshold'})
+            ET.SubElement(cut_setting, 'dpi', {'Value': str(img_dpi)})
 
-    for index, filename in enumerate(filenames):
+    for index, (layer,filename) in enumerate(zip(layers,input_files)):
         #python match statement to execute based on file extension (.svg, .png):
-        if filename.endswith('.svg'):
+        if "line_settings" in layer:
             info, shapes = parse_svg(filename)
             width_mm = info['Width']
             height_mm = info['Height']
-            x = origin_x + board_width_mm/2 - width_mm/2
+            mirror_y = layer['line_settings'].get('mirror_y',False)
+            if mirror_y:
+                x = origin_x + board_width_mm/2 + width_mm/2
+            else:
+                x = origin_x + board_width_mm/2 - width_mm/2
             y = origin_y + height_mm/2 + board_height_mm/2
             group = ET.SubElement(project, 'Shape', {'Type': 'Group'})
-            ET.SubElement(group, 'XForm').text = f'1 0 0 1 {x} {y}'
+            mirror_y_mark = "-" if mirror_y else ""
+            ET.SubElement(group, 'XForm').text = f'{mirror_y_mark}1 0 0 1 {x} {y}'
             children = ET.SubElement(group, 'Children')
 
 
@@ -117,25 +147,25 @@ def create_lbrn2(filenames, output_file):
                 elif shape['type'] == 'Ellipse':
                     shape_elem = ET.SubElement(children, 'Shape', {'Type': 'Ellipse', 'CutIndex': str(index), 'Rx': str(shape['rx']), 'Ry': str(shape['ry']) })
                     ET.SubElement(shape_elem, 'XForm').text = f"1 0 0 -1 {shape['cx']} -{shape['cy']}"
-        elif filename.endswith('.png'):
+        elif "image_settings" in layer:
             x = origin_x
             y = origin_y
             group = ET.SubElement(project, 'Shape', {'Type': 'Group'})
             ET.SubElement(group, 'XForm').text = f'1 0 0 1 {x} {y}'
             children = ET.SubElement(group, 'Children')
 
-
             # Open the image file
             with Image.open(filename) as img:
                 width, height = img.size
                 # Get the DPI (dots per inch) of the image
                 img_dpi_read = img.info.get('dpi', (img_dpi, img_dpi))[0]
-                mirrored_img = img.transpose(Image.FLIP_TOP_BOTTOM)
-                
+                if layer['image_settings']['mirror_y']:
+                    img = img.transpose(Image.FLIP_TOP_BOTTOM)
+
                 # Save the mirrored image to a BytesIO buffer
                 buffer = io.BytesIO()
-                mirrored_img.save(buffer, format="PNG")
-                
+                img.save(buffer, format="PNG")
+
                 # Encode the buffer's content to a base64 string
                 base64_string = base64.b64encode(buffer.getvalue()).decode('utf-8')
 
@@ -150,7 +180,7 @@ def create_lbrn2(filenames, output_file):
             data['H'] = str(height_mm)
             x = origin_x + width_mm/2
             y = origin_y + height_mm/2
-            data['Data'] = base64_string 
+            data['Data'] = base64_string
             shape_elem = ET.SubElement(children, 'Shape', data)
             ET.SubElement(shape_elem, 'XForm').text = f'1 0 0 1 {str(x)} {str(y)}'
 
@@ -158,16 +188,19 @@ def create_lbrn2(filenames, output_file):
     xml_str = minidom.parseString(ET.tostring(project)).toprettyxml(indent="    ")
     with open(output_file, 'w') as f:
         f.write(xml_str)
+    print(f"Converted {len(input_files)} files to {output_file}")
 
 if __name__ == '__main__':
-    svg_files = [
-        '/home/thomas/pets/sculpfun/svg2lbrn/pir-24v-F_Mask.svg',
-#        '/home/thomas/pets/sculpfun/svg2lbrn/pir-24v-F_Silkscreen.svg',
-#        '/home/thomas/pets/sculpfun/svg2lbrn/pir-24v-B_Mask.svg',
-        '/home/thomas/pets/sculpfun/svg2lbrn/pir-24v-F_Cu.png',
-        # Add more SVG file paths here if needed
-    ]
-    output_file = '/home/thomas/pets/sculpfun/svg2lbrn/out.lbrn2'
+    import sys
 
-    create_lbrn2(svg_files, output_file)
-    print(f"Converted {len(svg_files)} files to {output_file}")
+    if len(sys.argv) < 2:
+        print("Usage: python svg_to_lbrn2.py <yaml_file>")
+        sys.exit(1)
+
+    yaml_file = sys.argv[1]
+
+    # Read the YAML file
+    with open(yaml_file, 'r') as f:
+        config = yaml.safe_load(f)
+
+    create_lbrn2(config)
