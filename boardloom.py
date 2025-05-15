@@ -69,15 +69,16 @@ def create_lbrn2(config):
         if "board_contour" in layer:
             input_files += [None]
             continue
-        identifier = layer['identifier']
+        match = layer['match']
+        layer_name = layer.get("name", match)
         if "image_settings" in layer:
             default_extension =".png"
         elif "line_settings" in layer:
             default_extension =".svg"
         else:
-            raise ValueError(f"Layer {identifier} does not have a valid type.")
+            raise ValueError(f"Layer {name} does not have a valid type.")
         extension = layer.get('extension', default_extension)
-        input_files.append(f"{input_files_prefix}{identifier}{extension}")
+        input_files.append(f"{input_files_prefix}{match}{extension}")
 
     project = ET.Element('LightBurnProject', {
         'AppVersion': '1.7.06',
@@ -90,6 +91,7 @@ def create_lbrn2(config):
 
     # Add CutSettings for each layer
     for index, (layer,filename) in enumerate(zip(layers,input_files)):
+        layer_name = layer.get("name", os.path.basename(filename or "Contours"))
         print (index, layer, filename)
         if "board_contour" in layer:
             cut_setting = ET.SubElement(project, 'CutSetting', {'type': 'Cut'})
@@ -99,7 +101,7 @@ def create_lbrn2(config):
             speed_mm_sec = speed_mm_sec
             speed = speed_mm_sec / 60
             ET.SubElement(cut_setting, 'index', {'Value': str(index)})
-            ET.SubElement(cut_setting, 'name', {'Value': 'Contours'})
+            ET.SubElement(cut_setting, 'name', {'Value': layer_name})
             ET.SubElement(cut_setting, 'maxPower', {'Value':str(max_power)})
             ET.SubElement(cut_setting, 'maxPower2', {'Value': str(min_power)})
             ET.SubElement(cut_setting, 'speed', {'Value': str(speed)})
@@ -112,7 +114,7 @@ def create_lbrn2(config):
             speed_mm_sec = speed_mm_sec
             speed = speed_mm_sec / 60
             ET.SubElement(cut_setting, 'index', {'Value': str(index)})
-            ET.SubElement(cut_setting, 'name', {'Value': os.path.basename(filename)})
+            ET.SubElement(cut_setting, 'name', {'Value': layer_name})
             ET.SubElement(cut_setting, 'maxPower', {'Value':str(max_power)})
             ET.SubElement(cut_setting, 'maxPower2', {'Value': str(min_power)})
             ET.SubElement(cut_setting, 'speed', {'Value': str(speed)})
@@ -127,7 +129,7 @@ def create_lbrn2(config):
             speed_mm_sec = speed_mm_sec
             speed = speed_mm_sec / 60
             ET.SubElement(cut_setting, 'index', {'Value': str(index)})
-            ET.SubElement(cut_setting, 'name', {'Value': os.path.basename(filename)})
+            ET.SubElement(cut_setting, 'name', {'Value': layer_name})
             ET.SubElement(cut_setting, 'maxPower', {'Value':str(max_power)})
             ET.SubElement(cut_setting, 'maxPower2', {'Value': str(min_power)})
             ET.SubElement(cut_setting, 'speed', {'Value': str(speed)})
